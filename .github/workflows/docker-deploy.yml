@@ -1,0 +1,132 @@
+name: Docker Deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  POSTGRES_USER: admin
+  POSTGRES_PASSWORD: password
+  POSTGRES_DB: mydatabase
+  CI: true
+  NEXT_TELEMETRY_DISABLED: 1
+  DEBUG: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Debug info
+      - name: List workspace contents
+        run: |
+          pwd
+          ls -la
+          ls -la frontend || true
+          ls -la backend || true
+
+      # Frontend tests
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          echo "Installing dependencies..."
+          npm install
+          npm install -D jest jest-environment-jsdom @testing-library/react @testing-library/jest-dom
+
+      - name: Debug frontend test setup
+        working-directory: ./frontend
+        run: |
+          echo "Test file contents:"
+          cat __tests__/page.test.tsx || echo "Test file not found"
+          echo "Jest config contents:"
+          cat jest.config.js || echo "Jest config not found"
+          echo "Package.json contents:"
+          cat package.json || echo "Package.json not found"
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: |
+          echo "Running frontend tests with debug info..."
+          NODE_ENV=test DEBUG=true npm test -- --verbose --detectOpenHandles
+
+      # Backend tests
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Debug backend test setup
+        working-directory: backend
+        run: |
+          echo "Test file contents:"
+          cat tests/test_main.py || echo "Test file not found"
+          echo "Requirements contents:"
+          cat requirements.txt || echo "Requirements file not found"
+
+      - name: Run backend tests
+        working-directory: backend
+        run: |
+          echo "Running backend tests with debug info..."
+          python -m pytest -v --capture=no
+
+  build:
+    if: success()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and start containers
+        run: |
+          echo "Building Docker images..."
+          docker compose build --progress=plain
+          echo "Starting containers..."
+          docker compose up -d
+
+      - name: Health check
+        run: |
+          echo "Waiting for services to start..."
+          sleep 15
+          echo "Checking frontend..."
+          curl -v http://localhost:3000 || echo "Frontend not responding"
+          echo "Checking backend..."
+          curl -v http://localhost:8000 || echo "Backend not responding"
+
+      - name: Show container logs
+        if: always()
+        run: |
+          echo "Frontend logs:"
+          docker compose logs frontend
+          echo "Backend logs:"
+          docker compose logs backend
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down
