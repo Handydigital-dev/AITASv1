@@ -1,29 +1,26 @@
-# Development image
-FROM node:20-alpine
+# Use the official Node.js 20 image as the base
+FROM node:20-alpine AS builder
 
-# Set working directory
+# Set the working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package.json and package-lock.json
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
-# Copy the rest of the application code
+# Copy the application source code
 COPY . .
 
-# Expose port 3000
-EXPOSE 3000
-
-# Start development server
-CMD ["npm", "run", "dev"]
+# Build the Next.js application for production
+RUN npm run build
 
 # Stage 2: Production image
 FROM node:20-alpine
 
 WORKDIR /app
-
+        
 # Copy package.json
 COPY package*.json ./
 
@@ -33,6 +30,6 @@ RUN npm install --omit=dev
 # Copy only build artifacts from the builder stage
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-
+        
 # Start the Next.js app in production mode
-CMD ["npm", "start"] 
+CMD ["npm", "start"]
